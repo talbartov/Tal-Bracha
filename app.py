@@ -1,47 +1,98 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
+from datetime import datetime
 
-st.set_page_config(page_title="Stock Dashboard", layout="wide")
+# -------------------------
+# עיצוב
+# -------------------------
+st.set_page_config(page_title="זירת מסחר", layout="wide")
 
-st.title("📊 Stock Dashboard")
+st.markdown("""
+<style>
+body {
+    background-color: #f5f7fb;
+}
+.card {
+    background: white;
+    padding: 15px;
+    border-radius: 12px;
+    border: 1px solid #e6e6e6;
+    margin-bottom: 12px;
+}
+</style>
+""", unsafe_allow_html=True)
 
-# קלט משתמש
-ticker = st.text_input("Enter stock symbol (e.g. AAPL, TSLA, NVDA)", "AAPL")
+st.title("📊 זירת המסחר")
 
-period = st.selectbox(
-    "Select time range",
-    ["1mo", "3mo", "6mo", "1y", "5y", "max"]
-)
+# -------------------------
+# מצב
+# -------------------------
+if "stocks" not in st.session_state:
+    st.session_state.stocks = ["NSTR.TA"]  # נורסטאר כברירת מחדל
 
-if ticker:
+# -------------------------
+# פונקציה
+# -------------------------
+@st.cache_data(ttl=60)
+def get_data(symbol):
+    stock = yf.Ticker(symbol)
+    hist = stock.history(period="1d", interval="5m")
+    return hist, stock
+
+def add_stock(symbol):
+    if symbol and symbol not in st.session_state.stocks:
+        if len(st.session_state.stocks) < 40:
+            st.session_state.stocks.append(symbol)
+
+def remove_stock(symbol):
+    st.session_state.stocks.remove(symbol)
+
+# -------------------------
+# חיפוש
+# -------------------------
+st.subheader("הוספת מניה")
+
+symbol_input = st.text_input("הקלד סימבול (למשל AAPL / NVDA / POLI.TA)")
+
+if st.button("הוסף מניה"):
+    add_stock(symbol_input.upper())
+
+# -------------------------
+# רענון אוטומטי (UI בלבד)
+# -------------------------
+st.caption(f"עודכן: {datetime.now().strftime('%H:%M:%S')}")
+
+# -------------------------
+# דשבורד
+# -------------------------
+for symbol in st.session_state.stocks:
     try:
-        stock = yf.Ticker(ticker)
-
-        hist = stock.history(period=period)
+        hist, stock = get_data(symbol)
 
         if hist.empty:
-            st.warning("No data found for this ticker")
-        else:
-            st.subheader(f"{ticker} Price Chart")
+            continue
 
-            st.line_chart(hist["Close"])
+        last_price = hist["Close"].iloc[-1]
+        prev_price = hist["Close"].iloc[-2] if len(hist) > 1 else last_price
+        change = ((last_price - prev_price) / prev_price) * 100
 
-            st.subheader("Latest Data")
-            st.dataframe(hist.tail())
+        col1, col2, col3 = st.columns([2, 2, 1])
 
-            info = stock.info
+        with col1:
+            st.markdown(f"### {symbol}")
 
-            col1, col2, col3 = st.columns(3)
+        with col2:
+            st.metric("מחיר", f"{last_price:.2f}", f"{change:.2f}%")
 
-            with col1:
-                st.metric("Current Price", info.get("currentPrice", "N/A"))
+        with col3:
+            if st.button(f"הסר {symbol}"):
+                remove_stock(symbol)
+                st.rerun()
 
-            with col2:
-                st.metric("Market Cap", info.get("marketCap", "N/A"))
+        st.line_chart(hist["Close"])
 
-            with col3:
-                st.metric("P/E Ratio", info.get("trailingPE", "N/A"))
+        st.markdown("---")
 
     except Exception as e:
-        st.error(f"Error loading data: {e}")
+        st.warning(f"שגיאה ב-{symbol}")
