@@ -1,0 +1,3 @@
+
+print("Trading Agent Started")
+
