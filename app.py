@@ -1,20 +1,24 @@
 import streamlit as st
 import yfinance as yf
 import smtplib
+import time
 from email.mime.text import MIMEText
 from datetime import datetime
 
 # -------------------------
-# PAGE CONFIG
+# CONFIG
 # -------------------------
 st.set_page_config(page_title="Smart Stock Dashboard", layout="wide")
 
+GMAIL_USER = "YOUR_GMAIL@gmail.com"
+GMAIL_PASS = "YOUR_APP_PASSWORD"
+ALERT_EMAIL = "TARGET_EMAIL@gmail.com"
+
 # -------------------------
-# THEME (TradingView-light feel)
+# STYLE (modern dark UI)
 # -------------------------
 st.markdown("""
 <style>
-
 body {
     background-color: #0b1220;
     color: #e6edf3;
@@ -27,7 +31,7 @@ body {
 .card {
     background: #111a2e;
     border: 1px solid #22304a;
-    padding: 16px;
+    padding: 14px;
     border-radius: 14px;
     margin-bottom: 12px;
 }
@@ -37,33 +41,15 @@ body {
     font-weight: 700;
     color: #7dd3fc;
 }
-
-.subtitle {
-    color: #94a3b8;
-    margin-bottom: 20px;
-}
-
-.metric {
-    font-size: 18px;
-    font-weight: 600;
-}
-
 </style>
 """, unsafe_allow_html=True)
-
-# -------------------------
-# EMAIL CONFIG
-# -------------------------
-GMAIL_USER = "YOUR_GMAIL@gmail.com"
-GMAIL_PASS = "YOUR_APP_PASSWORD"
-ALERT_EMAIL = "TARGET_EMAIL@gmail.com"
 
 # -------------------------
 # STATE
 # -------------------------
 if "stocks" not in st.session_state:
     st.session_state.stocks = {
-        "TSLA": {"target": 250, "percent": 3},
+        "TSLA": {"target": 250, "percent": 2},
         "AAPL": {"target": 180, "percent": 2}
     }
 
@@ -73,20 +59,14 @@ if "last_price" not in st.session_state:
 # -------------------------
 # DATA
 # -------------------------
-def get_data(symbol):
+def get_price(symbol):
     try:
-        df = yf.download(symbol, period="5d", interval="1d", progress=False, threads=False)
+        df = yf.download(symbol, period="5d", interval="1d", progress=False)
         if df is None or df.empty:
             return None
-        return df
+        return float(df["Close"].iloc[-1])
     except:
         return None
-
-def get_price(symbol):
-    df = get_data(symbol)
-    if df is None:
-        return None
-    return float(df["Close"].iloc[-1])
 
 # -------------------------
 # EMAIL
@@ -124,7 +104,7 @@ def check_alerts():
 
         if price >= cfg["target"]:
             trigger = True
-            reason = "Target price reached"
+            reason = "Target reached"
 
         if abs(change) >= cfg["percent"]:
             trigger = True
@@ -133,7 +113,13 @@ def check_alerts():
         if trigger:
             send_email(
                 f"Stock Alert {s}",
-                f"{s}\nPrice: {price}\nChange: {change:.2f}%\nTime: {datetime.now()}\n{reason}"
+                f"""
+Symbol: {s}
+Price: {price}
+Change: {change:.2f}%
+Time: {datetime.now()}
+Reason: {reason}
+"""
             )
 
         st.session_state.last_price[s] = price
@@ -142,83 +128,57 @@ def check_alerts():
 # HEADER
 # -------------------------
 st.markdown("<div class='title'>📊 Smart Stock Dashboard</div>", unsafe_allow_html=True)
-st.markdown("<div class='subtitle'>Light TradingView-style monitoring system</div>", unsafe_allow_html=True)
 
 # -------------------------
-# TABS
+# SIDEBAR (manage stocks)
 # -------------------------
-tab1, tab2, tab3 = st.tabs(["Overview", "Alerts", "Manage"])
+st.sidebar.header("➕ Add Stock")
 
-# -------------------------
-# OVERVIEW
-# -------------------------
-with tab1:
+symbol = st.sidebar.text_input("Symbol")
+target = st.sidebar.number_input("Target Price", value=0.0)
+percent = st.sidebar.number_input("Alert %", value=2.0)
 
-    colA, colB = st.columns([2, 1])
-
-    with colA:
-        st.subheader("Live Stocks")
-
-        for s in st.session_state.stocks.keys():
-
-            price = get_price(s)
-
-            st.markdown(f"<div class='card'><h3>{s}</h3>", unsafe_allow_html=True)
-
-            if price is None:
-                st.write("No data")
-                st.markdown("</div>", unsafe_allow_html=True)
-                continue
-
-            st.metric("Price", f"{price:.2f}")
-
-            df = get_data(s)
-            if df is not None:
-                st.line_chart(df["Close"])
-
-            st.markdown("</div>", unsafe_allow_html=True)
-
-    with colB:
-        st.subheader("Control")
-
-        if st.button("Run Check Now"):
-            check_alerts()
-            st.success("Checked")
-
-# -------------------------
-# ALERTS
-# -------------------------
-with tab2:
-    st.subheader("Alert Rules")
-
-    for s, cfg in st.session_state.stocks.items():
-        st.markdown(f"""
-        <div class="card">
-        <b>{s}</b><br>
-        Target: {cfg['target']}<br>
-        Percent: {cfg['percent']}%
-        </div>
-        """, unsafe_allow_html=True)
-
-# -------------------------
-# MANAGE
-# -------------------------
-with tab3:
-
-    st.subheader("Add Stock")
-
-    sym = st.text_input("Symbol")
-    target = st.number_input("Target Price", value=0.0)
-    percent = st.number_input("Alert %", value=2.0)
-
-    if st.button("Add"):
-        st.session_state.stocks[sym.upper()] = {
+if st.sidebar.button("Add / Update"):
+    if symbol:
+        st.session_state.stocks[symbol.upper()] = {
             "target": target,
             "percent": percent
         }
-        st.success("Added")
+
+if st.sidebar.button("Check Now"):
+    check_alerts()
+    st.sidebar.success("Checked")
 
 # -------------------------
-# REFRESH CONTROL
+# AUTO REFRESH OPTION
 # -------------------------
-st.caption("Refresh page (F5) for updates")
+refresh = st.sidebar.checkbox("Auto refresh (60s)")
+
+if refresh:
+    time.sleep(60)
+    st.rerun()
+
+# -------------------------
+# MAIN UI
+# -------------------------
+for s, cfg in st.session_state.stocks.items():
+
+    price = get_price(s)
+
+    st.markdown(f"<div class='card'><h3>{s}</h3>", unsafe_allow_html=True)
+
+    if price is None:
+        st.error("No data")
+        st.markdown("</div>", unsafe_allow_html=True)
+        continue
+
+    st.metric("Price", f"{price:.2f}")
+
+    st.write("Target:", cfg["target"])
+    st.write("Alert %:", cfg["percent"])
+
+    df = yf.download(s, period="1mo", interval="1d", progress=False)
+    if df is not None and not df.empty:
+        st.line_chart(df["Close"])
+
+    st.markdown("</div>", unsafe_allow_html=True)
